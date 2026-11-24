@@ -1,0 +1,224 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model User {
+  id       String     @id @default(uuid())
+  name     String
+  email    String     @unique
+  password String
+  status   UserStatus @default(ACTIVE)
+
+  sessions                Session[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  whatsappChannels WhatsAppChannel[]
+  automations      Automation[]
+
+  @@map("users")
+}
+
+model Session {
+  id               String    @id @default(uuid())
+  userId           String
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model Automation {
+  id                String             @id @default(uuid())
+  userId            String
+  channelType       String             @default("WHATSAPP") // WHATSAPP
+  whatsAppChannelId String?            // WhatsApp Channel ID
+  name              String
+  description       String?
+  triggerType       String             // DM_KEYWORD, WELCOME_MESSAGE, FALLBACK_DEFAULT
+  matchType         String             @default("CONTAINS") // EXACT, CONTAINS, STARTS_WITH, ALL
+  keywords          String[]           @default([])
+  status            String             @default("ACTIVE")   // ACTIVE, PAUSED, DRAFT
+  totalRuns         Int                @default(0)
+  successRuns       Int                @default(0)
+  failedRuns        Int                @default(0)
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  whatsAppChannel   WhatsAppChannel?   @relation(fields: [whatsAppChannelId], references: [id], onDelete: SetNull)
+  steps             AutomationStep[]
+  logs              AutomationLog[]
+
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([whatsAppChannelId])
+  @@index([channelType])
+  @@index([triggerType])
+  @@map("automations")
+}
+
+model AutomationStep {
+  id           String     @id @default(uuid())
+  automationId String
+  order        Int        // 0, 1, 2...
+  stepType     String     // SEND_MESSAGE, SEND_MEDIA, QUICK_REPLIES, DELAY, ADD_TAG
+  content      Json       // { text: "...", buttons?: [...], delaySeconds?: 5, tag?: "lead", mediaUrl?: "..." }
+
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([automationId])
+  @@map("automation_steps")
+}
+
+model AutomationLog {
+  id           String     @id @default(uuid())
+  automationId String
+  contactId    String?    // WhatsApp JID/phone
+  channelType  String?    @default("WHATSAPP")
+  eventData    Json?      // snippet of incoming message
+  status       String     // SUCCESS, FAILED, SKIPPED
+  errorMessage String?
+  executedAt   DateTime   @default(now())
+
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([automationId])
+  @@index([executedAt])
+  @@map("automation_logs")
+}
+
+model ProcessedWebhookEvent {
+  id          String   @id // Message ID for deduplication
+  processedAt DateTime @default(now())
+
+  @@map("processed_webhook_events")
+}
+
+model WhatsAppChannel {
+  id              String    @id @default(uuid())
+  userId          String
+  phoneNumber     String?   // E.g. "919876543210"
+  jid             String?   // "919876543210@s.whatsapp.net"
+  name            String?   // WhatsApp profile name / push name
+  profilePic      String?   @db.Text
+  status          String    @default("CONNECTING") // "CONNECTING", "CONNECTED", "DISCONNECTED"
+  sessionDir      String?   // Internal storage identifier
+  sessionData     Json?     // Serialized Baileys multi-file auth credentials for container restart persistence
+  connectedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  automations     Automation[]
+  contacts        WhatsAppContact[]
+  messages        WhatsAppMessage[]
+
+  @@index([userId])
+  @@index([phoneNumber])
+  @@map("whatsapp_channels")
+}
+
+model WhatsAppContact {
+  id                 String           @id @default(uuid())
+  channelId          String
+  jid                String           // e.g. "918137922114@s.whatsapp.net"
+  phoneNumber        String           // e.g. "918137922114"
+  name               String?          // WhatsApp push name or contact name
+  profilePic         String?          @db.Text
+  tags               String[]         @default([])
+  unreadCount        Int              @default(0)
+  lastMessageText    String?          @db.Text
+  lastMessageType    String?          // TEXT, IMAGE, VIDEO, AUDIO, DOCUMENT
+  lastMessageAt      DateTime         @default(now())
+  isArchived         Boolean          @default(false)
+  isPinned           Boolean          @default(false)
+  notes              String?          @db.Text
+  lastInteractionAt  DateTime         @default(now())
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  channel            WhatsAppChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  messages           WhatsAppMessage[]
+
+  @@unique([channelId, jid])
+  @@index([channelId])
+  @@index([channelId, lastMessageAt])
+  @@map("whatsapp_contacts")
+}
+
+model WhatsAppMessage {
+  id                 String           @id @default(uuid())
+  channelId          String
+  contactId          String
+  direction          String           // INBOUND, OUTBOUND
+  messageType        String           // TEXT, IMAGE, VIDEO, AUDIO, DOCUMENT, QUICK_REPLY
+  text               String?          @db.Text
+  mediaUrl           String?          @db.Text
+  mediaType          String?          // image, video, audio, document
+  status             String           @default("DELIVERED") // PENDING, SENT, DELIVERED, READ, FAILED
+  waMessageId        String?
+  rawPayload         Json?
+  readAt             DateTime?
+  sentAt             DateTime         @default(now())
+
+  channel            WhatsAppChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  contact            WhatsAppContact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([channelId])
+  @@index([contactId])
+  @@index([contactId, sentAt])
+  @@map("whatsapp_messages")
+}

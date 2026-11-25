@@ -120,21 +120,5 @@ export const resendVerificationOtpSchema = z.object({
 
 export type ResendVerificationOtpInput = z.infer<typeof resendVerificationOtpSchema>;
 
-export const googleAuthSchema = z.object({
-    idToken: z.string().optional(),
-    email: z.string().trim().email().transform((v) => v.toLowerCase()).optional(),
-    name: z.string().trim().optional(),
-    googleId: z.string().optional(),
-    avatarUrl: z.string().optional(),
-});
-
-export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
-
-export const googleConfigSchema = z.object({
-    clientId: z.string().trim().min(5, 'Google Client ID is required'),
-    clientSecret: z.string().trim().min(5, 'Google Client Secret is required'),
-});
-
-export type GoogleConfigInput = z.infer<typeof googleConfigSchema>;
 
 

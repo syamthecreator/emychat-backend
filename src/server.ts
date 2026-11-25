@@ -37,8 +37,6 @@ app.use(cors({
         }
 
         const allowedOrigins = [
-            'https://emychat.web.app',
-            'https://emychat.firebaseapp.com',
             'https://emychat-project.web.app',
             'https://emychat-project.firebaseapp.com',
             process.env.FRONTEND_URL,

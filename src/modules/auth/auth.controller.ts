@@ -5,6 +5,12 @@ import {
     loginSchema,
     refreshTokenSchema,
     logoutSchema,
+    forgotPasswordSchema,
+    verifyOtpSchema,
+    resetPasswordSchema,
+    verifyEmailOtpSchema,
+    resendVerificationOtpSchema,
+    googleAuthSchema,
 } from './auth.validation';
 import { AuthenticatedRequest } from './auth.types';
 
@@ -24,14 +30,12 @@ export class AuthController {
                 });
             }
 
-            const user = await authService.register(validation.data);
+            const result = await authService.register(validation.data);
 
             return res.status(201).json({
                 success: true,
                 message: 'Account created successfully',
-                data: {
-                    user,
-                },
+                data: result,
             });
         } catch (error) {
             if (
@@ -159,38 +163,259 @@ export class AuthController {
 
     async logout(req: Request, res: Response) {
         try {
-            const validation = logoutSchema.safeParse(req.body);
+            const refreshToken = req.body?.refreshToken;
+            const userId = (req as AuthenticatedRequest).userId;
 
-            if (!validation.success) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Validation failed',
-                    errors: validation.error.issues,
-                });
-            }
-
-            await authService.logout(validation.data.refreshToken);
+            await authService.logout(refreshToken, userId);
 
             return res.status(200).json({
                 success: true,
                 message: 'Logout successful',
             });
         } catch (error) {
-            if (
-                error instanceof Error &&
-                error.message === 'INVALID_REFRESH_TOKEN'
-            ) {
-                return res.status(401).json({
-                    success: false,
-                    message: 'Invalid refresh token',
-                });
-            }
-
             console.error('Logout error:', error);
 
             return res.status(500).json({
                 success: false,
                 message: 'Something went wrong while logging out',
+            });
+        }
+    }
+
+    async forgotPassword(req: Request, res: Response) {
+        try {
+            const validation = forgotPasswordSchema.safeParse(req.body);
+
+            if (!validation.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validation failed',
+                    errors: validation.error.issues.map((issue) => ({
+                        field: issue.path.join('.'),
+                        message: issue.message,
+                    })),
+                });
+            }
+
+            const result = await authService.forgotPassword(validation.data.email);
+
+            return res.status(200).json({
+                success: true,
+                message: result.message,
+            });
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                error.message === 'ACCOUNT_INACTIVE'
+            ) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Your account is not active',
+                });
+            }
+
+            console.error('Forgot password error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Something went wrong while processing your request',
+            });
+        }
+    }
+
+    async verifyOtp(req: Request, res: Response) {
+        try {
+            const validation = verifyOtpSchema.safeParse(req.body);
+
+            if (!validation.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validation failed',
+                    errors: validation.error.issues.map((issue) => ({
+                        field: issue.path.join('.'),
+                        message: issue.message,
+                    })),
+                });
+            }
+
+            await authService.verifyOtp(validation.data.email, validation.data.otp);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Verification code verified successfully',
+            });
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                error.message === 'INVALID_OR_EXPIRED_OTP'
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid or expired verification code',
+                });
+            }
+
+            console.error('Verify OTP error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Something went wrong while verifying code',
+            });
+        }
+    }
+
+    async resetPassword(req: Request, res: Response) {
+        try {
+            const validation = resetPasswordSchema.safeParse(req.body);
+
+            if (!validation.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validation failed',
+                    errors: validation.error.issues.map((issue) => ({
+                        field: issue.path.join('.'),
+                        message: issue.message,
+                    })),
+                });
+            }
+
+            await authService.resetPassword(validation.data);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Password has been reset successfully. Please sign in.',
+            });
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                error.message === 'INVALID_OR_EXPIRED_OTP'
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid or expired verification code',
+                });
+            }
+
+            console.error('Reset password error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Something went wrong while resetting your password',
+            });
+        }
+    }
+
+    async verifyEmailOtp(req: Request, res: Response) {
+        try {
+            const validation = verifyEmailOtpSchema.safeParse(req.body);
+
+            if (!validation.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validation failed',
+                    errors: validation.error.issues.map((issue) => ({
+                        field: issue.path.join('.'),
+                        message: issue.message,
+                    })),
+                });
+            }
+
+            const result = await authService.verifyEmailOtp(validation.data);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Email verified successfully! Welcome to EmyChat.',
+                data: result,
+            });
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                error.message === 'INVALID_OR_EXPIRED_OTP'
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid or expired verification code',
+                });
+            }
+
+            if (
+                error instanceof Error &&
+                error.message === 'EMAIL_ALREADY_VERIFIED'
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This email is already verified. Please sign in.',
+                });
+            }
+
+            console.error('Verify email OTP error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Something went wrong while verifying email',
+            });
+        }
+    }
+
+    async resendVerificationOtp(req: Request, res: Response) {
+        try {
+            const validation = resendVerificationOtpSchema.safeParse(req.body);
+
+            if (!validation.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validation failed',
+                    errors: validation.error.issues.map((issue) => ({
+                        field: issue.path.join('.'),
+                        message: issue.message,
+                    })),
+                });
+            }
+
+            const result = await authService.resendVerificationOtp(validation.data.email);
+
+            return res.status(200).json({
+                success: true,
+                message: result.message,
+            });
+        } catch (error) {
+            console.error('Resend verification OTP error:', error);
+
+            return res.status(500).json({
+                success: false,
+                message: 'Something went wrong while resending verification code',
+            });
+        }
+    }
+
+    async google(req: Request, res: Response) {
+        try {
+            const validation = googleAuthSchema.safeParse(req.body);
+
+            if (!validation.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validation failed',
+                    errors: validation.error.issues.map((issue) => ({
+                        field: issue.path.join('.'),
+                        message: issue.message,
+                    })),
+                });
+            }
+
+            const result = await authService.googleAuth(validation.data);
+
+            return res.status(200).json({
+                success: true,
+                message: 'Google authentication successful',
+                data: result,
+            });
+        } catch (error) {
+            console.error('Google auth error:', error);
+
+            return res.status(401).json({
+                success: false,
+                message: error instanceof Error ? error.message : 'Google authentication failed',
             });
         }
     }

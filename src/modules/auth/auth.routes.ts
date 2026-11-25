@@ -13,6 +13,18 @@ router.post('/verify-email-otp', (req, res) =>
 router.post('/resend-verification-otp', (req, res) =>
     authController.resendVerificationOtp(req, res),
 );
+router.get('/google/config', (req, res) =>
+    authController.googleConfig(req, res),
+);
+router.post('/google/config', (req, res) =>
+    authController.saveGoogleConfig(req, res),
+);
+router.get('/google/login', (req, res) =>
+    authController.googleLogin(req, res),
+);
+router.get('/google/callback', (req, res) =>
+    authController.googleCallback(req, res),
+);
 router.post('/google', (req, res) =>
     authController.google(req, res),
 );

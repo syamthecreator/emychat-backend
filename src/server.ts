@@ -20,7 +20,11 @@ const app = express();
 
 const PORT = process.env.PORT || 5001;
 
-app.use(helmet());
+app.use(
+    helmet({
+        crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    }),
+);
 
 app.use(cors({
     origin: (origin, callback) => {

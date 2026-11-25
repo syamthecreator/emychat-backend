@@ -130,3 +130,11 @@ export const googleAuthSchema = z.object({
 
 export type GoogleAuthInput = z.infer<typeof googleAuthSchema>;
 
+export const googleConfigSchema = z.object({
+    clientId: z.string().trim().min(5, 'Google Client ID is required'),
+    clientSecret: z.string().trim().min(5, 'Google Client Secret is required'),
+});
+
+export type GoogleConfigInput = z.infer<typeof googleConfigSchema>;
+
+

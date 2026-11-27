@@ -16,6 +16,7 @@ import inboxRoutes from './modules/inbox/inbox.routes';
 import whatsappRoutes from './modules/whatsapp/whatsapp.routes';
 import whatsAppService from './modules/whatsapp/whatsapp.service';
 import emyRoutes from './modules/emy/emy.routes';
+import { ensureEmyTables } from './modules/emy/emy.db-init';
 
 const app = express();
 
@@ -75,6 +76,7 @@ app.use('/api/v1/inbox', inboxRoutes);
 app.use('/api/v1/whatsapp', whatsappRoutes);
 
 app.use('/api/v1/emy', emyRoutes);
+void ensureEmyTables();
 
 // Root endpoint
 app.get('/', (_req, res) => {

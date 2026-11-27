@@ -8,7 +8,7 @@ const pdfParse = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: str
 
 const MAX_CHUNK_CHARS = 900;
 const CHUNK_OVERLAP_CHARS = 150;
-const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004';
+const EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
 
 export interface RetrievedChunk {
     id: string;

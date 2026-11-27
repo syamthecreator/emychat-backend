@@ -3,7 +3,7 @@ import { emyDocumentService, RetrievedChunk } from './emy.document.service';
 import { createGenAIClient } from './emy.genai';
 import { EMY_PLATFORM_KNOWLEDGE, OFF_TOPIC_REFUSAL } from './emy.platform-knowledge';
 
-const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-2.5-flash';
+const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.0-flash';
 const MAX_HISTORY_MESSAGES = 12;
 
 export interface EmyChatTurn {

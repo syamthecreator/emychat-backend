@@ -3,7 +3,14 @@ import { emyDocumentService, RetrievedChunk } from './emy.document.service';
 import { createGenAIClient } from './emy.genai';
 import { EMY_PLATFORM_KNOWLEDGE, OFF_TOPIC_REFUSAL } from './emy.platform-knowledge';
 
-const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || 'gemini-3.0-flash';
+const DEFAULT_CHAT_MODELS = [
+    process.env.GEMINI_CHAT_MODEL,
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+].filter((m): m is string => Boolean(m && m.trim()));
+
 const MAX_HISTORY_MESSAGES = 12;
 
 export interface EmyChatTurn {
@@ -20,6 +27,8 @@ export interface EmyChatResponse {
 }
 
 export class EmyAiService {
+    private resolvedModel: string | null = null;
+
     private async getClient() {
         const client = await createGenAIClient();
         if (!client) {
@@ -28,6 +37,77 @@ export class EmyAiService {
             );
         }
         return client;
+    }
+
+    private async discoverAvailableModel(ai: any): Promise<string | null> {
+        try {
+            const pager = await ai.models.list();
+            const candidates: string[] = [];
+            for await (const model of pager) {
+                const name = String(model?.name || '').replace(/^models\//, '');
+                const methods: string[] = Array.isArray(model?.supportedActions)
+                    ? model.supportedActions
+                    : Array.isArray(model?.supportedGenerationMethods)
+                      ? model.supportedGenerationMethods
+                      : [];
+                const supportsGenerate =
+                    methods.length === 0 || methods.includes('generateContent');
+                if (name.includes('gemini') && supportsGenerate && !name.includes('embedding')) {
+                    candidates.push(name);
+                }
+            }
+            const preferred =
+                candidates.find((m) => m.includes('flash') && !m.includes('lite')) ||
+                candidates.find((m) => m.includes('flash')) ||
+                candidates[0];
+            return preferred || null;
+        } catch (err) {
+            console.warn('Model discovery failed:', err);
+            return null;
+        }
+    }
+
+    private async generateWithFallback(
+        ai: any,
+        contents: any[],
+        systemInstruction: string,
+    ) {
+        const modelsToTry = this.resolvedModel
+            ? [this.resolvedModel]
+            : DEFAULT_CHAT_MODELS;
+
+        let lastError: any;
+        for (const model of modelsToTry) {
+            try {
+                const res = await ai.models.generateContent({
+                    model,
+                    contents,
+                    config: { systemInstruction, temperature: 0.2 },
+                });
+                this.resolvedModel = model;
+                return res;
+            } catch (err: any) {
+                lastError = err;
+                const status = err?.status || err?.code;
+                if (status !== 404) {
+                    throw err;
+                }
+            }
+        }
+
+        // Fallback: dynamically list models available to this API key
+        const discovered = await this.discoverAvailableModel(ai);
+        if (discovered) {
+            const res = await ai.models.generateContent({
+                model: discovered,
+                contents,
+                config: { systemInstruction, temperature: 0.2 },
+            });
+            this.resolvedModel = discovered;
+            return res;
+        }
+
+        throw lastError || new Error('No supported Gemini model found for this API key.');
     }
 
     private buildSystemInstruction(params: {
@@ -147,14 +227,11 @@ ${docContext}`;
         ];
 
         const ai = await this.getClient();
-        const response = await ai.models.generateContent({
-            model: CHAT_MODEL,
+        const response = await this.generateWithFallback(
+            ai,
             contents,
-            config: {
-                systemInstruction,
-                temperature: 0.2,
-            },
-        });
+            systemInstruction,
+        );
 
         const reply = (response.text || '').trim() || OFF_TOPIC_REFUSAL;
 

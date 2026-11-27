@@ -5,6 +5,7 @@ import { EMY_PLATFORM_KNOWLEDGE, OFF_TOPIC_REFUSAL } from './emy.platform-knowle
 
 const DEFAULT_CHAT_MODELS = [
     process.env.GEMINI_CHAT_MODEL,
+    'gemini-3.0-flash',
     'gemini-3-flash-preview',
     'gemini-2.5-flash-lite',
     'gemini-2.0-flash',
@@ -27,10 +28,10 @@ export interface EmyChatResponse {
 }
 
 export class EmyAiService {
-    private resolvedModel: string | null = null;
+    private resolvedModel: { model: string; apiVersion?: string } | null = null;
 
-    private async getClient() {
-        const client = await createGenAIClient();
+    private async getClient(apiVersion?: string) {
+        const client = await createGenAIClient(apiVersion);
         if (!client) {
             throw new Error(
                 'GEMINI_API_KEY is not configured on the server. Please add GEMINI_API_KEY to your environment variables.',
@@ -39,7 +40,7 @@ export class EmyAiService {
         return client;
     }
 
-    private async discoverAvailableModel(ai: any): Promise<string | null> {
+    private async discoverAvailableModels(ai: any): Promise<string[]> {
         try {
             const pager = await ai.models.list();
             const candidates: string[] = [];
@@ -52,59 +53,74 @@ export class EmyAiService {
                       : [];
                 const supportsGenerate =
                     methods.length === 0 || methods.includes('generateContent');
-                if (name.includes('gemini') && supportsGenerate && !name.includes('embedding')) {
+                if (
+                    name.includes('gemini') &&
+                    supportsGenerate &&
+                    !name.includes('embedding') &&
+                    !name.includes('tts') &&
+                    !name.includes('image')
+                ) {
                     candidates.push(name);
                 }
             }
-            const preferred =
-                candidates.find((m) => m.includes('flash') && !m.includes('lite')) ||
-                candidates.find((m) => m.includes('flash')) ||
-                candidates[0];
-            return preferred || null;
+            // Prefer newer Flash models first, then other Gemini models
+            candidates.sort((a, b) => {
+                const score = (n: string) =>
+                    (n.includes('3.') || n.includes('3-') ? 100 : 0) +
+                    (n.includes('flash') ? 20 : 0) +
+                    (n.includes('lite') ? -5 : 0);
+                return score(b) - score(a);
+            });
+            return candidates;
         } catch (err) {
             console.warn('Model discovery failed:', err);
-            return null;
+            return [];
         }
     }
 
     private async generateWithFallback(
-        ai: any,
         contents: any[],
         systemInstruction: string,
     ) {
-        const modelsToTry = this.resolvedModel
-            ? [this.resolvedModel]
-            : DEFAULT_CHAT_MODELS;
-
-        let lastError: any;
-        for (const model of modelsToTry) {
-            try {
-                const res = await ai.models.generateContent({
-                    model,
-                    contents,
-                    config: { systemInstruction, temperature: 0.2 },
-                });
-                this.resolvedModel = model;
-                return res;
-            } catch (err: any) {
-                lastError = err;
-                const status = err?.status || err?.code;
-                if (status !== 404) {
-                    throw err;
-                }
-            }
-        }
-
-        // Fallback: dynamically list models available to this API key
-        const discovered = await this.discoverAvailableModel(ai);
-        if (discovered) {
-            const res = await ai.models.generateContent({
-                model: discovered,
+        if (this.resolvedModel) {
+            const client = await this.getClient(this.resolvedModel.apiVersion);
+            return client.models.generateContent({
+                model: this.resolvedModel.model,
                 contents,
                 config: { systemInstruction, temperature: 0.2 },
             });
-            this.resolvedModel = discovered;
-            return res;
+        }
+
+        const versionsToTry: Array<string | undefined> = [undefined, 'v1beta'];
+        let lastError: any;
+
+        for (const apiVersion of versionsToTry) {
+            const client = await this.getClient(apiVersion);
+            const discovered = await this.discoverAvailableModels(client);
+            const modelsToTry = Array.from(
+                new Set([...DEFAULT_CHAT_MODELS, ...discovered]),
+            );
+
+            for (const model of modelsToTry) {
+                try {
+                    const res = await client.models.generateContent({
+                        model,
+                        contents,
+                        config: { systemInstruction, temperature: 0.2 },
+                    });
+                    this.resolvedModel = { model, apiVersion };
+                    console.log(
+                        `Emy resolved Gemini model: ${model} (apiVersion: ${apiVersion || 'default'})`,
+                    );
+                    return res;
+                } catch (err: any) {
+                    lastError = err;
+                    const status = err?.status || err?.code;
+                    if (status !== 404) {
+                        throw err;
+                    }
+                }
+            }
         }
 
         throw lastError || new Error('No supported Gemini model found for this API key.');
@@ -226,9 +242,7 @@ ${docContext}`;
             },
         ];
 
-        const ai = await this.getClient();
         const response = await this.generateWithFallback(
-            ai,
             contents,
             systemInstruction,
         );

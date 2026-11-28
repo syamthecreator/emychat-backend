@@ -31,6 +31,7 @@ model User {
   automations      Automation[]
   documents        UserDocument[]
   emyChatMessages  EmyChatMessage[]
+  workspaces       Workspace[]
 
   @@map("users")
 }
@@ -272,4 +273,23 @@ model EmyChatMessage {
 
   @@index([userId, createdAt])
   @@map("emy_chat_messages")
+}
+
+model Workspace {
+  id               String   @id @default(uuid())
+  ownerId          String
+  name             String
+  businessName     String
+  businessCategory String?
+  slug             String   @unique
+  timezone         String   @default("UTC")
+  country          String   @default("United States")
+  userRole         String   @default("OWNER")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  owner            User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@map("workspaces")
 }

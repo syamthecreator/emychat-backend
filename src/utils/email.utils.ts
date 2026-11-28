@@ -1,6 +1,8 @@
+import nodemailer, { Transporter } from 'nodemailer';
+
 /**
  * Production Email Service & OTP Dispatcher for EmyChat.
- * Supports SMTP/HTTP integrations when configured, with clean logging fallback.
+ * Supports SMTP (Gmail/custom) and Resend when configured, with clean logging fallback.
  */
 
 export interface EmailOptions {
@@ -10,13 +12,61 @@ export interface EmailOptions {
     text: string;
 }
 
+let cachedTransporter: Transporter | null = null;
+let cachedSmtpKey: string | null = null;
+
+function getSmtpTransporter(): Transporter | null {
+    const user = process.env.SMTP_USER?.trim();
+    const pass = process.env.SMTP_PASS?.trim();
+    if (!user || !pass) return null;
+
+    const host = process.env.SMTP_HOST?.trim() || 'smtp.gmail.com';
+    const port = Number(process.env.SMTP_PORT || 465);
+    const secure = process.env.SMTP_SECURE
+        ? process.env.SMTP_SECURE === 'true'
+        : port === 465;
+
+    const key = `${host}:${port}:${secure}:${user}`;
+    if (cachedTransporter && cachedSmtpKey === key) {
+        return cachedTransporter;
+    }
+
+    cachedTransporter = nodemailer.createTransport({
+        host,
+        port,
+        secure,
+        auth: { user, pass },
+    });
+    cachedSmtpKey = key;
+    return cachedTransporter;
+}
+
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
-    const { to, subject, text } = options;
+    const { to, subject, text, html } = options;
 
-    // Check if custom SMTP or external mail provider is configured
-    const smtpHost = process.env.SMTP_HOST;
+    // 1. SMTP (e.g. Gmail App Password via nodemailer)
+    const transporter = getSmtpTransporter();
+    if (transporter) {
+        try {
+            const fromAddress =
+                process.env.EMAIL_FROM?.trim() ||
+                `EmyChat <${process.env.SMTP_USER?.trim()}>`;
+            await transporter.sendMail({
+                from: fromAddress,
+                to,
+                subject,
+                text,
+                html,
+            });
+            console.log(`[EMAIL DISPATCH] Sent via SMTP to ${to}`);
+            return true;
+        } catch (err) {
+            console.error('[EMAIL DISPATCH] SMTP error:', err);
+        }
+    }
+
+    // 2. Resend HTTP API
     const resendApiKey = process.env.RESEND_API_KEY;
-
     if (resendApiKey) {
         try {
             const res = await fetch('https://api.resend.com/emails', {
@@ -29,7 +79,7 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
                     from: process.env.EMAIL_FROM || 'EmyChat <support@emychat.com>',
                     to: [to],
                     subject,
-                    html: options.html,
+                    html,
                     text,
                 }),
             });
@@ -43,7 +93,7 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
         }
     }
 
-    // Default development & server log output
+    // 3. Default development & server log output
     console.log('\n================================================================');
     console.log(`[EMAIL DISPATCH] To: ${to}`);
     console.log(`[EMAIL DISPATCH] Subject: ${subject}`);
